@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/market.db
+data/model.pkl
+.streamlit/secrets.toml
+.venv/
