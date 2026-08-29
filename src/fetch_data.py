@@ -39,8 +39,28 @@ def fetch_and_store(symbol, period, conn):
         print(f"  [WARN] no data returned for {symbol}")
         return 0
 
+    # Newer yfinance versions can return MultiIndex columns (Price, Ticker)
+    # even for a single symbol -- flatten to plain column names first.
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df = df.reset_index()
     df.columns = [str(c).lower() for c in df.columns]
+
+    # The date column can come back as "date", "datetime", or "index"
+    # depending on yfinance version -- normalise it.
+    date_col = next((c for c in df.columns if c in ("date", "datetime", "index")), None)
+    if date_col is None:
+        print(f"  [WARN] could not find a date column for {symbol}, columns were: {list(df.columns)}")
+        return 0
+    df = df.rename(columns={date_col: "date"})
+
+    required = {"open", "high", "low", "close", "volume"}
+    missing = required - set(df.columns)
+    if missing:
+        print(f"  [WARN] {symbol} missing columns {missing}, skipping")
+        return 0
+
     df["symbol"] = symbol
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
 
