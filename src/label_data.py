@@ -1,11 +1,14 @@
 """
-Triple-barrier labeling for training data.
+Triple-barrier labeling for training data, using ATR-based (volatility
+normalized) barriers instead of a flat percentage. This means a volatile
+stock and a calm stock get proportionally different target/stop distances,
+which produces cleaner, more comparable labels across the whole universe.
 
 For each (date, symbol), look forward up to `max_days` trading days and
 label based on whichever barrier is hit first:
     1  -> profit target hit first (upper barrier)
     0  -> stop-loss hit first (lower barrier)
-   -1  -> neither hit, time limit expired (excluded from training by default)
+   -1  -> neither hit, time limit expired (excluded from training)
 
 Usage:
     python label_data.py
@@ -15,16 +18,33 @@ import pandas as pd
 
 from db import get_connection
 
-PROFIT_TARGET_PCT = 0.025   # 2.5% (tuned for Nifty 100 large-caps)
-STOP_LOSS_PCT = 0.015       # 1.5%
+ATR_TARGET_MULT = 2.0   # target = entry + 2.0 * ATR(14)
+ATR_STOP_MULT = 1.2     # stop   = entry - 1.2 * ATR(14)
+ATR_LOOKBACK = 14
 MAX_DAYS = 10
+
+
+def compute_atr(df):
+    """Simple ATR(14) from OHLC, used only for labeling (independent of the
+    features table so this script can run standalone right after fetch)."""
+    high, low, close = df["high"], df["low"], df["close"]
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.rolling(ATR_LOOKBACK).mean()
 
 
 def label_symbol(df):
     df = df.sort_values("date").reset_index(drop=True)
+    df["atr"] = compute_atr(df)
+
     closes = df["close"].values
     highs = df["high"].values
     lows = df["low"].values
+    atr = df["atr"].values
     dates = df["date"].values
     n = len(df)
 
@@ -33,9 +53,12 @@ def label_symbol(df):
     exit_dates = [None] * n
 
     for i in range(n - 1):
+        if np.isnan(atr[i]) or atr[i] <= 0:
+            continue
+
         entry = closes[i]
-        upper = entry * (1 + PROFIT_TARGET_PCT)
-        lower = entry * (1 - STOP_LOSS_PCT)
+        upper = entry + ATR_TARGET_MULT * atr[i]
+        lower = entry - ATR_STOP_MULT * atr[i]
         end = min(i + MAX_DAYS, n - 1)
 
         for j in range(i + 1, end + 1):
