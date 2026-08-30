@@ -17,7 +17,7 @@ from db import get_connection
 
 MODEL_PATH = Path(__file__).resolve().parent.parent / "data" / "model.pkl"
 
-MIN_CONFIDENCE = 0.65
+MIN_CONFIDENCE = 0.50
 TOP_N_SIGNALS = 10
 PROFIT_TARGET_PCT = 0.025
 STOP_LOSS_PCT = 0.015
