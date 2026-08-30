@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS features (
     return_5d_rank REAL,
     nifty_trend REAL,
     india_vix REAL,
+    ema_50 REAL,
+    ema_200 REAL,
+    above_ema50 REAL,
+    above_ema200 REAL,
+    ema50_slope REAL,
+    atr_pct REAL,
+    atr_pctile_60d REAL,
     PRIMARY KEY (date, symbol)
 );
 
@@ -73,10 +80,25 @@ def get_connection():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
+    _ensure_new_columns(conn)
     return conn
+
+
+def _ensure_new_columns(conn):
+    """Adds new feature columns to an existing DB (created before this update) without wiping data."""
+    new_cols = {
+        "ema_50": "REAL", "ema_200": "REAL", "above_ema50": "REAL",
+        "above_ema200": "REAL", "ema50_slope": "REAL",
+        "atr_pct": "REAL", "atr_pctile_60d": "REAL",
+    }
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(features)").fetchall()}
+    for col, coltype in new_cols.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE features ADD COLUMN {col} {coltype}")
+    conn.commit()
 
 
 if __name__ == "__main__":
     conn = get_connection()
-    print(f"Database initialised at {DB_PATH}")
+    print(f"Database initialised/updated at {DB_PATH}")
     conn.close()
