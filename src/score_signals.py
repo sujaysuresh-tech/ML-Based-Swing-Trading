@@ -17,10 +17,10 @@ from db import get_connection
 
 MODEL_PATH = Path(__file__).resolve().parent.parent / "data" / "model.pkl"
 
-MIN_CONFIDENCE = 0.50
+MIN_CONFIDENCE = 0.55  # lowered from 0.65 -- tune upward once model AUC improves
 TOP_N_SIGNALS = 10
-PROFIT_TARGET_PCT = 0.025
-STOP_LOSS_PCT = 0.015
+ATR_TARGET_MULT = 2.0   # matches label_data.py -- keeps suggestions consistent with training labels
+ATR_STOP_MULT = 1.2
 MIN_AVG_VOLUME = 100_000  # shares/day, adjust per your liquidity comfort
 
 
@@ -40,7 +40,7 @@ def main():
 
     feats = pd.read_sql(
         "SELECT * FROM features WHERE date = ?", conn, params=(latest_date,)
-    ).dropna(subset=feature_cols)
+    ).dropna(subset=feature_cols + ["atr_14"])
 
     prices_today = pd.read_sql(
         "SELECT symbol, close, volume FROM prices WHERE date = ?", conn, params=(latest_date,)
@@ -84,14 +84,15 @@ def main():
         top_features_str = json.dumps([{"feature": f, "impact": round(float(v), 4)} for f, v in top_features])
 
         entry_price = row["close"]
+        atr = row["atr_14"]
         rows.append((
             latest_date,
             row["symbol"],
             "long",
             round(float(row["confidence"]), 4),
             round(float(entry_price), 2),
-            round(float(entry_price * (1 - STOP_LOSS_PCT)), 2),
-            round(float(entry_price * (1 + PROFIT_TARGET_PCT)), 2),
+            round(float(entry_price - ATR_STOP_MULT * atr), 2),
+            round(float(entry_price + ATR_TARGET_MULT * atr), 2),
             top_features_str,
         ))
 
