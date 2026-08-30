@@ -1,7 +1,7 @@
 """
-Build technical, price-action, cross-sectional, and market-regime features
-from raw OHLCV data stored in SQLite, and write them back to the `features`
-table.
+Build technical, price-action, cross-sectional, trend/regime, and
+volatility-regime features from raw OHLCV data stored in SQLite, and write
+them back to the `features` table.
 
 Usage:
     python build_features.py
@@ -27,9 +27,9 @@ def compute_stock_features(df):
     df.ta.atr(length=14, append=True)
     df.ta.adx(length=14, append=True)
 
-    df["return_5d"] = df["close"].pct_change(5)
-    df["return_10d"] = df["close"].pct_change(10)
-    df["return_20d"] = df["close"].pct_change(20)
+    df["return_5d"] = df["close"].pct_change(5, fill_method=None)
+    df["return_10d"] = df["close"].pct_change(10, fill_method=None)
+    df["return_20d"] = df["close"].pct_change(20, fill_method=None)
     df["volume_ratio"] = df["volume"] / df["volume"].rolling(20).mean()
     df["dist_from_52wk_high"] = df["close"] / df["close"].rolling(252, min_periods=20).max() - 1
     df["dist_from_52wk_low"] = df["close"] / df["close"].rolling(252, min_periods=20).min() - 1
@@ -56,6 +56,22 @@ def compute_stock_features(df):
         elif col.startswith("ADX_"):
             rename_map[col] = "adx_14"
     df = df.rename(columns=rename_map)
+
+    # --- Trend features (new) ---
+    df["ema_50"] = df["close"].ewm(span=50, min_periods=50).mean()
+    df["ema_200"] = df["close"].ewm(span=200, min_periods=200).mean()
+    df["above_ema50"] = (df["close"] > df["ema_50"]).astype(float)
+    df["above_ema200"] = (df["close"] > df["ema_200"]).astype(float)
+    df["ema50_slope"] = df["ema_50"].pct_change(5, fill_method=None)
+
+    # --- Volatility regime features (new) ---
+    if "atr_14" in df.columns:
+        df["atr_pct"] = df["atr_14"] / df["close"]
+        df["atr_pctile_60d"] = df["atr_pct"].rolling(60, min_periods=20).rank(pct=True)
+    else:
+        df["atr_pct"] = None
+        df["atr_pctile_60d"] = None
+
     return df
 
 
@@ -82,7 +98,7 @@ def main():
     )
     regime = pd.merge(nifty[["date", "nifty_trend"]], vix[["date", "india_vix"]], on="date", how="outer")
 
-    # --- Per-stock technical + price-action features ---
+    # --- Per-stock technical + price-action + trend + volatility features ---
     all_feats = []
     symbols = stock_prices["symbol"].unique()
     for i, sym in enumerate(symbols, 1):
@@ -106,6 +122,8 @@ def main():
         "return_5d", "return_10d", "return_20d", "volume_ratio",
         "dist_from_52wk_high", "dist_from_52wk_low",
         "rsi_rank", "return_5d_rank", "nifty_trend", "india_vix",
+        "ema_50", "ema_200", "above_ema50", "above_ema200", "ema50_slope",
+        "atr_pct", "atr_pctile_60d",
     ]
     for c in cols:
         if c not in feats.columns:
